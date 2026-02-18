@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IoT Gateway Event Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .header h1 {
+      color: #333;
+      font-size: 2em;
+    }
+
+    .status-card {
+      background: white;
+      border-radius: 10px;
+      padding: 15px 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .status-led {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #f44336;
+      transition: background-color 0.3s;
+    }
+
+    .status-led.active {
+      background: #4caf50;
+      box-shadow: 0 0 10px #4caf50;
+    }
+
+    .badge {
+      background: #667eea;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      display: inline-block;
+    }
+
+    .badge.button {
+      background: #4299e1;
+    }
+
+    .badge.sensor {
+      background: #48bb78;
+    }
+
+    .badge.gnss {
+      background: #ed8936;
+    }
+
+    .badge.system {
+      background: #9f7aea;
+    }
+
+    .events-card {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    .events-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .button {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: background 0.3s;
+    }
+
+    .button:hover {
+      background: #5a67d8;
+    }
+
+    .button.secondary {
+      background: #48bb78;
+    }
+
+    .button.secondary:hover {
+      background: #38a169;
+    }
+
+    .button.warning {
+      background: #f56565;
+    }
+
+    .button.warning:hover {
+      background: #e53e3e;
+    }
+
+    .events-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .events-table th {
+      text-align: left;
+      padding: 12px 10px;
+      background: #f7fafc;
+      color: #4a5568;
+      font-weight: 600;
+    }
+
+    .events-table td {
+      padding: 12px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #4a5568;
+    }
+
+    .events-table tr:hover {
+      background: #f7fafc;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #999;
+    }
+
+    .empty-state svg {
+      width: 80px;
+      height: 80px;
+      margin-bottom: 15px;
+      fill: #ddd;
+    }
+
+    .data-preview {
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #718096;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📡 IoT Gateway Event Dashboard</h1>
+    </div>
+
+    <div class="status-card">
+      <div class="status-led" id="connectionLed"></div>
+      <div>
+        <strong>Status:</strong>
+        <span id="connectionStatus">Waiting for connection...</span>
+      </div>
+      <div>
+        <strong>Events:</strong>
+        <span id="eventCount">0</span>
+      </div>
+      <div style="margin-left: auto;">
+        <span class="badge" id="lastSeen">Never</span>
+      </div>
+    </div>
+
+    <div class="events-card">
+      <div class="events-header">
+        <h2>📋 Event Log</h2>
+        <div>
+          <button class="button secondary" onclick="refreshEvents()">🔄 Refresh</button>
+          <button class="button warning" onclick="clearEvents()">🗑️ Clear</button>
+        </div>
+      </div>
+
+      <div id="eventsContainer">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h10v2H7zm0 4h6v2H7z" />
+          </svg>
+          <h3>No events yet</h3>
+          <p>Waiting for data from nRF9151...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let events = [];
+
+    function formatTimestamp(isoString) {
+      const date = new Date(isoString);
+      return date.toLocaleString();
+    }
+
+    function getBadgeClass(eventType) {
+      return `badge ${eventType || 'unknown'}`;
+    }
+
+    function formatEventData(data) {
+      const eventData = {...data};
+      delete eventData.event_type;
+      delete eventData.timestamp;
+      delete eventData.device_id;
+      delete eventData.button;
+
+      if (Object.keys(eventData).length === 0) {
+        return '-';
+      }
+
+      const preview = JSON.stringify(eventData);
+      return `<span class="data-preview" title="${preview}">${preview}</span>`;
+    }
+
+    function updateStatus() {
+      const led = document.getElementById('connectionLed');
+      const status = document.getElementById('connectionStatus');
+      const lastSeen = document.getElementById('lastSeen');
+      const eventCount = document.getElementById('eventCount');
+
+      eventCount.textContent = events.length;
+
+      if (events.length > 0) {
+        led.className = 'status-led active';
+        status.textContent = 'Connected';
+
+        const lastEvent = events[events.length - 1];
+        const lastTime = new Date(lastEvent.timestamp);
+        const now = new Date();
+        const diffSeconds = Math.round((now - lastTime) / 1000);
+
+        if (diffSeconds < 60) {
+          lastSeen.textContent = `${diffSeconds}s ago`;
+        } else {
+          const diffMinutes = Math.round(diffSeconds / 60);
+          lastSeen.textContent = `${diffMinutes}m ago`;
+        }
+      } else {
+        led.className = 'status-led';
+        status.textContent = 'Waiting for connection';
+        lastSeen.textContent = 'Never';
+      }
+    }
+
+    function renderEvents() {
+      const container = document.getElementById('eventsContainer');
+
+      if (events.length === 0) {
+        container.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h10v2H7zm0 4h6v2H7z"/>
+                        </svg>
+                        <h3>No events yet</h3>
+                    </div>
+                `;
+        return;
+      }
+
+      let html = `
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Type</th>
+                            <th>Device</th>
+                            <th>Data</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+      // Show most recent first
+      [...events].reverse().forEach(event => {
+        const eventType = event.event_type || 'unknown';
+        const deviceId = event.device_id || 'nRF9151';
+        const buttonInfo = event.button ? ` (${event.button})` : '';
+
+        html += `
+                    <tr>
+                        <td>${formatTimestamp(event.timestamp)}</td>
+                        <td><span class="${getBadgeClass(eventType)}">${eventType}${buttonInfo}</span></td>
+                        <td>${deviceId}</td>
+                        <td>${formatEventData(event)}</td>
+                    </tr>
+                `;
+      });
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+      updateStatus();
+    }
+
+    async function fetchEvents() {
+      try {
+        const response = await fetch('/api/events');
+        events = await response.json();
+        renderEvents();
+      } catch (error) {
+        console.error('Error fetching events:', error);
+      }
+    }
+
+    function refreshEvents() {
+      fetchEvents();
+    }
+
+    async function clearEvents() {
+      if (confirm('Clear all events?')) {
+        try {
+          await fetch('/api/events/clear', {method: 'POST'});
+          await fetchEvents();
+        } catch (error) {
+          console.error('Error clearing events:', error);
+        }
+      }
+    }
+
+    // Poll for new events every 3 seconds
+    setInterval(fetchEvents, 3000);
+
+    // Initial load
+    fetchEvents();
+  </script>
+</body>
+
+</html>
