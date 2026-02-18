@@ -1,0 +1,8 @@
+# Build outputs
+**/build/
+**/.cache/
+
+# Python
+**/.venv/
+**/__pycache__/
+**/*.pyc
